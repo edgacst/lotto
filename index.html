@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#121316" />
+  <title>럭키픽 - 로또 번호 생성기</title>
+  <meta name="description" content="고정 번호, 제외 번호, 즐겨찾기, 번호 통계를 제공하는 로또 6/45 번호 생성기입니다." />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="stylesheet" href="style.css?v=20260606" />
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">45</span>
+        <div>
+          <p>Lucky Pick</p>
+          <h1>럭키픽</h1>
+        </div>
+      </div>
+      <button class="ghost-button" id="installBtn" type="button" hidden>설치</button>
+    </header>
+
+    <section class="hero" aria-label="오늘의 추천">
+      <div class="hero-copy">
+        <p class="kicker">Lotto 6/45 Generator</p>
+        <h2>조건을 고르면 조합은 깔끔하게.</h2>
+        <p>고정 번호, 제외 번호, 저장한 조합까지 한 화면에서 관리하는 로또 번호 생성기입니다.</p>
+      </div>
+      <div class="lotto-machine" aria-hidden="true">
+        <span>7</span>
+        <span>18</span>
+        <span>29</span>
+        <span>34</span>
+        <span>41</span>
+      </div>
+    </section>
+
+    <nav class="tabs" aria-label="앱 메뉴">
+      <button class="tab is-active" type="button" data-tab="generator">생성</button>
+      <button class="tab" type="button" data-tab="saved">보관함</button>
+      <button class="tab" type="button" data-tab="insights">통계</button>
+      <button class="tab" type="button" data-tab="about">안내</button>
+    </nav>
+
+    <section class="screen is-active" id="generator" aria-label="번호 생성">
+      <form class="panel controls" id="lottoForm">
+        <div class="panel-title">
+          <div>
+            <p class="kicker">Generator</p>
+            <h3>생성 조건</h3>
+          </div>
+          <button class="icon-button" id="resetBtn" type="button" aria-label="조건 초기화" title="조건 초기화">↺</button>
+        </div>
+
+        <label class="range-field">
+          <span>게임 수</span>
+          <strong id="gameCountLabel">5게임</strong>
+          <input id="gameCount" type="range" min="1" max="5" value="5" />
+        </label>
+
+        <label class="input-field">
+          <span>고정 번호</span>
+          <input id="fixedInput" type="text" inputmode="numeric" placeholder="예: 7, 14" autocomplete="off" />
+        </label>
+
+        <label class="input-field">
+          <span>제외 번호</span>
+          <input id="excludeInput" type="text" inputmode="numeric" placeholder="예: 4, 13, 44" autocomplete="off" />
+        </label>
+
+        <div class="quick-grid" id="quickGrid" aria-label="빠른 번호 선택"></div>
+
+        <button class="primary-button" type="submit">번호 생성</button>
+        <p class="notice" id="notice" role="status">생성된 조합마다 균형 점수와 패턴 리포트를 함께 보여줍니다.</p>
+      </form>
+
+      <section class="panel results">
+        <div class="panel-title">
+          <div>
+            <p class="kicker">Result</p>
+            <h3>추천 조합</h3>
+          </div>
+          <span class="draw-date" id="drawDate"></span>
+        </div>
+        <div class="result-list" id="resultList"></div>
+      </section>
+    </section>
+
+    <section class="screen" id="saved" aria-label="저장한 조합">
+      <div class="panel">
+        <div class="panel-title">
+          <div>
+            <p class="kicker">Archive</p>
+            <h3>보관함</h3>
+          </div>
+          <button class="ghost-button danger" id="clearSavedBtn" type="button">전체 삭제</button>
+        </div>
+        <div class="saved-list" id="savedList"></div>
+      </div>
+    </section>
+
+    <section class="screen" id="insights" aria-label="번호 통계">
+      <div class="panel">
+        <div class="panel-title">
+          <div>
+            <p class="kicker">Insights</p>
+            <h3>최근 생성 통계</h3>
+          </div>
+          <span class="muted" id="statsCount">0개 조합</span>
+        </div>
+        <div class="stats-grid" id="statsGrid"></div>
+      </div>
+    </section>
+
+    <section class="screen" id="about" aria-label="서비스 안내">
+      <div class="panel about-panel">
+        <p class="kicker">Product Notes</p>
+        <h3>스토어 출시용 기본 구성</h3>
+        <ul>
+          <li>개인정보 수집 없이 브라우저 또는 앱 내부 저장소에만 조합을 보관합니다.</li>
+          <li>생성 결과는 무작위 추천이며 당첨을 보장하지 않습니다.</li>
+          <li>각 조합의 홀짝 비율, 구간 분산, 패턴 위험을 점수화해 설명합니다.</li>
+          <li>구글플레이 출시는 Android 래퍼, 앱 아이콘, 스크린샷, 개인정보처리방침 URL 준비가 필요합니다.</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <template id="gameTemplate">
+    <article class="game-card">
+      <div class="game-meta">
+        <strong></strong>
+        <span></span>
+      </div>
+      <div class="balls"></div>
+      <div class="game-actions">
+        <button type="button" data-action="save">저장</button>
+        <button type="button" data-action="copy">복사</button>
+      </div>
+    </article>
+  </template>
+
+  <script src="script.js?v=20260606"></script>
+</body>
+</html>

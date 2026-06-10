@@ -1,0 +1,20 @@
+# Android build
+native-android/.gradle/
+native-android/build/
+native-android/app/build/
+native-android/local.properties
+native-android/.idea/
+native-android/*.iml
+
+# Signing secrets (never commit)
+native-android/keystore/
+native-android/keystore.properties
+
+# Release binaries
+*.aab
+*.apk
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log

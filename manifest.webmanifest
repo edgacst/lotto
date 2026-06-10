@@ -1,0 +1,19 @@
+{
+  "name": "럭키픽 - 로또 번호 생성기",
+  "short_name": "럭키픽",
+  "description": "고정 번호, 제외 번호, 즐겨찾기, 번호 통계를 제공하는 로또 6/45 번호 생성기입니다.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#111316",
+  "theme_color": "#121316",
+  "lang": "ko-KR",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

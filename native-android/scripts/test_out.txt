@@ -1,0 +1,8 @@
+﻿python : C:\Users\USER\AppData\Local\Programs\Python\Python312\python.exe: can't open file 'C:\\Users\\USER\\Desktop\\로
+또 생성기\\native-android\\scripts\\test_store_api.py': [Errno 2] No such file or directory
+위치 C:\Users\USER\AppData\Local\Temp\ps-script-daf6b30d-cbfa-4a9f-be6b-e41632268ade.ps1:110 문자:1
++ python "C:\Users\USER\Desktop\로또 생성기\native-android\scripts\test_stor ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\USER\A...le or directory:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
