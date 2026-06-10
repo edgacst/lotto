@@ -24,6 +24,7 @@ import android.graphics.drawable.LayerDrawable;
 import android.location.Address;
 import android.location.Geocoder;
 import android.location.Location;
+import android.location.LocationListener;
 import android.location.LocationManager;
 import android.media.AudioManager;
 import android.media.ToneGenerator;
@@ -129,8 +130,9 @@ public class MainActivity extends Activity {
     private String selectedZodiac = "";
     private String selectedBirthDateTime = "";
     private int zodiacDrawNonce = 0;
-    private boolean pendingNearbySellerSearch = false;
     private boolean retryNearbySellerSearchOnResume = false;
+    private LocationListener pendingLocationListener;
+    private Runnable pendingLocationTimeout;
     private OnBackInvokedCallback backInvokedCallback;
     private final Handler autoHandler = new Handler(Looper.getMainLooper());
     private final Handler bannerHandler = new Handler(Looper.getMainLooper());
@@ -187,14 +189,13 @@ public class MainActivity extends Activity {
         }
         if (!retryNearbySellerSearchOnResume) return;
         retryNearbySellerSearchOnResume = false;
-        if ("official".equals(activeTab)) {
-            lookupNearbySellerByLocation(true);
-        }
+        startNearbyStoreSearch();
     }
 
     @Override
     protected void onDestroy() {
         stopHomeBannerRotation();
+        stopPendingLocationRequest();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && backInvokedCallback != null) {
             getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(backInvokedCallback);
             backInvokedCallback = null;
@@ -363,19 +364,11 @@ public class MainActivity extends Activity {
         page.addView(officialRoundLookupPanel(false));
         content.addView(page);
 
-        if (!pendingNearbySellerSearch) {
-            if (officialLookupResult != null) {
-                officialLookupResult.setText("");
-            }
-            if (officialLookupResultBox != null) {
-                officialLookupResultBox.removeAllViews();
-            }
+        if (officialLookupResult != null) {
+            officialLookupResult.setText("");
         }
-
-        if (pendingNearbySellerSearch) {
-            pendingNearbySellerSearch = false;
-            lookupNearbySellerByLocation(true);
-            return;
+        if (officialLookupResultBox != null) {
+            officialLookupResultBox.removeAllViews();
         }
 
         loadLatestOfficialRounds(10);
@@ -727,14 +720,14 @@ public class MainActivity extends Activity {
     }
 
     private void showQuickLinkMenu() {
-        String[] items = {"회차별 당첨번호", "복권 판매점 찾기"};
+        String[] items = {"회차별 당첨번호", "내 주변 복권방 찾기"};
         new AlertDialog.Builder(this)
             .setTitle("공식 데이터 조회")
             .setItems(items, (dialog, which) -> {
                 if (which == 0) {
                     switchTab("official");
                 } else {
-                    showSellerSearchDialog();
+                    startNearbyStoreSearch();
                 }
             })
             .show();
@@ -904,9 +897,19 @@ public class MainActivity extends Activity {
             .show();
     }
 
-    private void showSellerSearchDialog() {
-        pendingNearbySellerSearch = true;
-        switchTab("official");
+    private void startNearbyStoreSearch() {
+        ensureHomeLookupPanel();
+        if (officialLookupResult != null) {
+            officialLookupResult.setVisibility(View.VISIBLE);
+        }
+        showNearbyStatus("복권방 찾기", "현재 위치 기준 3km 이내 판매점을 찾고 있습니다.");
+        scrollToLookupPanel();
+        lookupNearbySellerByLocation(true);
+    }
+
+    private void scrollToLookupPanel() {
+        if (rootScroll == null) return;
+        rootScroll.post(() -> rootScroll.fullScroll(View.FOCUS_DOWN));
     }
 
     private void lookupNearbySellerByLocation(boolean allowPermissionRequest) {
@@ -920,37 +923,162 @@ public class MainActivity extends Activity {
             }
         }
 
-        double[] center = currentMapCenter();
-        if (center == null) {
-            openLocationSettingsForRetry();
+        showNearbyStatus("복권방 찾기", "현재 위치를 확인하는 중입니다...");
+        resolveMapCenter((centerLat, centerLng) -> {
+            if (centerLat == null || centerLng == null) {
+                showNearbyLocationError();
+                return;
+            }
+
+            showNearbyStatus("복권방 찾기", "현재 위치 기준 3km 이내 판매점을 찾고 있습니다.");
+            final double lat = centerLat;
+            final double lng = centerLng;
+
+            new Thread(() -> {
+                try {
+                    List<NearbyStore> nearby = fetchNearbyOfficialStores(lat, lng, 3000f);
+                    String keyword = resolveNearbyKeyword(lat, lng);
+                    runOnUiThread(() -> {
+                        renderNearbyStores(nearby, keyword, lat, lng);
+                        if (nearby.isEmpty()) {
+                            Toast.makeText(this, "3km 이내 공식 판매점을 찾지 못했습니다.", Toast.LENGTH_LONG).show();
+                        } else {
+                            Toast.makeText(this, "3km 이내 복권 판매점 " + nearby.size() + "곳을 찾았습니다.", Toast.LENGTH_SHORT).show();
+                        }
+                        scrollToLookupPanel();
+                    });
+                } catch (Exception error) {
+                    runOnUiThread(() -> {
+                        showNearbyLocationError();
+                        Toast.makeText(this, "판매점 조회에 실패했습니다. 다시 시도해 주세요.", Toast.LENGTH_LONG).show();
+                    });
+                }
+            }).start();
+        });
+    }
+
+    private interface MapCenterCallback {
+        void onResult(Double lat, Double lng);
+    }
+
+    private void resolveMapCenter(MapCenterCallback callback) {
+        double[] cached = currentMapCenter(false);
+        if (cached != null) {
+            callback.onResult(cached[0], cached[1]);
             return;
         }
 
-        final double centerLat = center[0];
-        final double centerLng = center[1];
-        showNearbyStatus("복권 판매점 조회 중", "현재 위치 기준 3km 이내 판매점을 찾고 있습니다.");
+        if (!hasLocationPermission()) {
+            callback.onResult(null, null);
+            return;
+        }
 
-        new Thread(() -> {
-            try {
-                List<NearbyStore> nearby = fetchNearbyOfficialStores(centerLat, centerLng, 3000f);
-                String keyword = resolveNearbyKeyword(centerLat, centerLng);
-                runOnUiThread(() -> {
-                    renderNearbyStores(nearby, keyword);
-                    if (nearby.isEmpty()) {
-                        Toast.makeText(this, "3km 이내 공식 판매점을 찾지 못했습니다. 지도 검색을 엽니다.", Toast.LENGTH_LONG).show();
-                        openNearbyStoresFallback(centerLat, centerLng);
-                        return;
-                    }
-                    Toast.makeText(this, "3km 이내 복권 판매점 " + nearby.size() + "곳을 찾았습니다.", Toast.LENGTH_SHORT).show();
-                    openNearbyStoresMap(centerLat, centerLng, nearby);
-                });
-            } catch (Exception error) {
-                runOnUiThread(() -> {
-                    Toast.makeText(this, "판매점 조회에 실패했습니다. 지도 검색을 엽니다.", Toast.LENGTH_LONG).show();
-                    openNearbyStoresFallback(centerLat, centerLng);
-                });
+        LocationManager manager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        if (manager == null) {
+            callback.onResult(null, null);
+            return;
+        }
+
+        stopPendingLocationRequest();
+        final boolean[] delivered = {false};
+
+        pendingLocationListener = new LocationListener() {
+            @Override
+            public void onLocationChanged(Location location) {
+                if (delivered[0] || location == null) return;
+                delivered[0] = true;
+                stopPendingLocationRequest();
+                callback.onResult(location.getLatitude(), location.getLongitude());
             }
-        }).start();
+
+            @Override
+            public void onStatusChanged(String provider, int status, Bundle extras) {
+            }
+
+            @Override
+            public void onProviderEnabled(String provider) {
+            }
+
+            @Override
+            public void onProviderDisabled(String provider) {
+            }
+        };
+
+        pendingLocationTimeout = () -> {
+            if (delivered[0]) return;
+            delivered[0] = true;
+            stopPendingLocationRequest();
+            double[] relaxed = currentMapCenter(true);
+            if (relaxed != null) {
+                callback.onResult(relaxed[0], relaxed[1]);
+            } else {
+                callback.onResult(null, null);
+            }
+        };
+        autoHandler.postDelayed(pendingLocationTimeout, 8000L);
+
+        try {
+            if (manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                manager.requestLocationUpdates(
+                    LocationManager.NETWORK_PROVIDER,
+                    0L,
+                    0f,
+                    pendingLocationListener,
+                    Looper.getMainLooper()
+                );
+            }
+            if (manager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                manager.requestLocationUpdates(
+                    LocationManager.GPS_PROVIDER,
+                    0L,
+                    0f,
+                    pendingLocationListener,
+                    Looper.getMainLooper()
+                );
+            }
+        } catch (SecurityException error) {
+            stopPendingLocationRequest();
+            callback.onResult(null, null);
+        }
+    }
+
+    private void stopPendingLocationRequest() {
+        if (pendingLocationTimeout != null) {
+            autoHandler.removeCallbacks(pendingLocationTimeout);
+            pendingLocationTimeout = null;
+        }
+        if (pendingLocationListener == null) return;
+        try {
+            LocationManager manager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+            if (manager != null) {
+                manager.removeUpdates(pendingLocationListener);
+            }
+        } catch (Exception ignored) {
+        }
+        pendingLocationListener = null;
+    }
+
+    private void showNearbyLocationError() {
+        showNearbyStatus("위치를 확인하지 못했습니다", "GPS를 켜고 위치 권한을 허용한 뒤 다시 시도해 주세요.");
+        if (officialLookupResultBox == null) return;
+
+        officialLookupResultBox.removeAllViews();
+        LinearLayout card = column();
+        card.setPadding(dp(12), dp(12), dp(12), dp(12));
+        card.setBackground(round(Color.rgb(245, 246, 248), 12));
+        card.addView(label("내 주변 복권방 찾기", 17, Color.rgb(20, 24, 31), true));
+        card.addView(label("현재 위치를 가져오지 못했습니다.", 13, Color.rgb(92, 98, 110), false));
+
+        Button retry = secondaryButton("다시 찾기");
+        retry.setOnClickListener(v -> startNearbyStoreSearch());
+        card.addView(retry);
+
+        Button settings = secondaryButton("위치 설정 열기");
+        settings.setOnClickListener(v -> openLocationSettingsForRetry());
+        card.addView(settings);
+
+        officialLookupResultBox.addView(card);
+        scrollToLookupPanel();
     }
 
     private void openLocationSettingsForRetry() {
@@ -1019,7 +1147,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void renderNearbyStores(List<NearbyStore> stores, String keyword) {
+    private void renderNearbyStores(List<NearbyStore> stores, String keyword, double centerLat, double centerLng) {
         if (officialLookupResult == null || officialLookupResultBox == null) return;
 
         officialLookupResult.setVisibility(View.VISIBLE);
@@ -1037,7 +1165,7 @@ public class MainActivity extends Activity {
 
         if (stores.isEmpty()) {
             card.addView(label("3km 이내 공식 판매점을 찾지 못했습니다.", 13, Color.rgb(92, 98, 110), false));
-            card.addView(label("지도 검색으로 주변 복권점을 확인합니다.", 12, Color.rgb(116, 121, 130), false));
+            card.addView(label("지도 검색으로 주변 복권점을 확인해 보세요.", 12, Color.rgb(116, 121, 130), false));
         } else {
             int limit = Math.min(15, stores.size());
             for (int i = 0; i < limit; i++) {
@@ -1049,6 +1177,20 @@ public class MainActivity extends Activity {
                 card.addView(label("외 " + (stores.size() - limit) + "곳", 12, Color.rgb(104, 109, 118), false));
             }
         }
+
+        Button mapButton = secondaryButton(stores.isEmpty() ? "지도에서 복권방 검색" : "지도에서 전체 보기");
+        mapButton.setOnClickListener(v -> {
+            if (stores.isEmpty()) {
+                openNearbyStoresFallback(centerLat, centerLng);
+            } else {
+                openNearbyStoresMap(centerLat, centerLng, stores);
+            }
+        });
+        card.addView(mapButton);
+
+        Button retryButton = secondaryButton("다시 찾기");
+        retryButton.setOnClickListener(v -> startNearbyStoreSearch());
+        card.addView(retryButton);
 
         officialLookupResultBox.addView(card);
     }
@@ -1332,7 +1474,7 @@ public class MainActivity extends Activity {
             || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
     }
 
-    private double[] currentMapCenter() {
+    private double[] currentMapCenter(boolean relaxed) {
         if (!hasLocationPermission()) return null;
         try {
             LocationManager manager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
@@ -1343,7 +1485,7 @@ public class MainActivity extends Activity {
                 try {
                     Location location = manager.getLastKnownLocation(provider);
                     if (location == null) continue;
-                    if (!isLocationUsable(location)) continue;
+                    if (!isLocationUsable(location, relaxed)) continue;
                     if (best == null || location.getAccuracy() < best.getAccuracy()) best = location;
                 } catch (SecurityException ignored) {
                 }
@@ -1355,10 +1497,12 @@ public class MainActivity extends Activity {
         }
     }
 
-    private boolean isLocationUsable(Location location) {
+    private boolean isLocationUsable(Location location, boolean relaxed) {
         long ageMs = System.currentTimeMillis() - location.getTime();
-        if (ageMs > 20L * 60L * 1000L) return false;
-        if (location.hasAccuracy() && location.getAccuracy() > 2000f) return false;
+        long maxAgeMs = relaxed ? 60L * 60L * 1000L : 30L * 60L * 1000L;
+        if (ageMs > maxAgeMs) return false;
+        float maxAccuracy = relaxed ? 5000f : 2500f;
+        if (location.hasAccuracy() && location.getAccuracy() > maxAccuracy) return false;
         return true;
     }
 
@@ -1376,7 +1520,10 @@ public class MainActivity extends Activity {
             }
         }
         if (granted) {
-            lookupNearbySellerByLocation(false);
+            startNearbyStoreSearch();
+        } else {
+            showNearbyLocationError();
+            Toast.makeText(this, "위치 권한이 없으면 주변 복권방을 찾을 수 없습니다.", Toast.LENGTH_LONG).show();
         }
     }
 
@@ -1492,6 +1639,10 @@ public class MainActivity extends Activity {
             Button qrButton = secondaryButton("QR 스캔");
             qrButton.setOnClickListener(v -> startQrScan());
             panel.addView(qrButton);
+
+            Button storeButton = secondaryButton("내 주변 복권방 찾기");
+            storeButton.setOnClickListener(v -> startNearbyStoreSearch());
+            panel.addView(storeButton);
         }
 
         officialLookupResult = label(showQrSection ? "로또 QR코드를 스캔하면 당첨번호를 확인합니다." : "", 13, muted, false);
