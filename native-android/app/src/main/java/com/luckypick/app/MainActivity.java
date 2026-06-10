@@ -130,6 +130,7 @@ public class MainActivity extends Activity {
     private String selectedZodiac = "";
     private String selectedBirthDateTime = "";
     private int zodiacDrawNonce = 0;
+    private boolean pendingNearbyStoreSearch = false;
     private boolean retryNearbySellerSearchOnResume = false;
     private LocationListener pendingLocationListener;
     private Runnable pendingLocationTimeout;
@@ -361,8 +362,15 @@ public class MainActivity extends Activity {
         LinearLayout page = column();
         page.setPadding(0, 0, 0, dp(16));
 
-        page.addView(officialRoundLookupPanel(false));
+        boolean storeSearchMode = pendingNearbyStoreSearch;
+        page.addView(storeSearchMode ? nearbyStorePanel() : officialRoundLookupPanel(false));
         content.addView(page);
+
+        if (storeSearchMode) {
+            pendingNearbyStoreSearch = false;
+            lookupNearbySellerByLocation(true);
+            return;
+        }
 
         if (officialLookupResult != null) {
             officialLookupResult.setText("");
@@ -898,17 +906,17 @@ public class MainActivity extends Activity {
     }
 
     private void startNearbyStoreSearch() {
-        ensureHomeLookupPanel();
-        if (officialLookupResult != null) {
-            officialLookupResult.setVisibility(View.VISIBLE);
+        pendingNearbyStoreSearch = true;
+        if ("official".equals(activeTab)) {
+            content.removeAllViews();
+            renderOfficialPage();
+        } else {
+            switchTab("official");
         }
-        showNearbyStatus("복권방 찾기", "현재 위치 기준 3km 이내 판매점을 찾고 있습니다.");
-        scrollToLookupPanel();
-        lookupNearbySellerByLocation(true);
     }
 
     private void scrollToLookupPanel() {
-        if (rootScroll == null) return;
+        if (rootScroll == null || !"official".equals(activeTab)) return;
         rootScroll.post(() -> rootScroll.fullScroll(View.FOCUS_DOWN));
     }
 
@@ -1627,6 +1635,25 @@ public class MainActivity extends Activity {
             .show();
     }
 
+    private LinearLayout nearbyStorePanel() {
+        LinearLayout panel = panelView();
+        panel.setPadding(dp(12), dp(12), dp(12), dp(12));
+
+        TextView title = label("내 주변 복권방 찾기", 16, text, true);
+        title.setPadding(0, 0, 0, dp(8));
+        panel.addView(title);
+
+        officialLookupResult = label("현재 위치 기준 3km 이내 판매점을 찾습니다.", 13, muted, false);
+        officialLookupResult.setPadding(0, 0, 0, dp(6));
+        panel.addView(officialLookupResult);
+
+        officialLookupResultBox = column();
+        officialLookupResultBox.setPadding(0, dp(4), 0, 0);
+        panel.addView(officialLookupResultBox);
+
+        return panel;
+    }
+
     private LinearLayout officialRoundLookupPanel(boolean showQrSection) {
         LinearLayout panel = panelView();
         panel.setPadding(dp(12), dp(12), dp(12), dp(12));
@@ -1639,10 +1666,6 @@ public class MainActivity extends Activity {
             Button qrButton = secondaryButton("QR 스캔");
             qrButton.setOnClickListener(v -> startQrScan());
             panel.addView(qrButton);
-
-            Button storeButton = secondaryButton("내 주변 복권방 찾기");
-            storeButton.setOnClickListener(v -> startNearbyStoreSearch());
-            panel.addView(storeButton);
         }
 
         officialLookupResult = label(showQrSection ? "로또 QR코드를 스캔하면 당첨번호를 확인합니다." : "", 13, muted, false);
